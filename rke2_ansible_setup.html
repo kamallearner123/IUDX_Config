@@ -1,0 +1,478 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RKE2, Helm, and Rancher Setup with Ansible</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background-color: #1f2937;
+      color: #e5e7eb;
+      font-family: 'Inter', sans-serif;
+    }
+    .section-card {
+      background-color: #374151;
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .section-card h2 {
+      color: #60a5fa;
+    }
+    .code-block {
+      background-color: #1e293b;
+      border-radius: 0.375rem;
+      padding: 1rem;
+      font-family: 'Courier New', Courier, monospace;
+      color: #d1d5db;
+      overflow-x: auto;
+    }
+    .highlight {
+      color: #f472b6;
+      font-weight: bold;
+    }
+    details summary {
+      cursor: pointer;
+      color: #93c5fd;
+      font-weight: 600;
+      padding: 0.5rem;
+      background-color: #2d3748;
+      border-radius: 0.375rem;
+    }
+    details summary:hover {
+      background-color: #3b82f6;
+      color: #ffffff;
+    }
+    a {
+      color: #60a5fa;
+      text-decoration: underline;
+    }
+    a:hover {
+      color: #93c5fd;
+    }
+  </style>
+</head>
+<body class="min-h-screen py-8 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-4xl mx-auto">
+    <header class="text-center mb-8">
+      <h1 class="text-4xl font-bold text-blue-400">Deploying RKE2, Helm, and Rancher with Ansible</h1>
+      <p class="mt-2 text-lg text-gray-300">A step-by-step guide to set up a high-availability Kubernetes cluster with 3 master and 3 worker nodes</p>
+    </header>
+
+    <div class="section-card">
+      <h2 class="text-2xl font-semibold mb-4">Overview</h2>
+      <p class="mb-4">This guide demonstrates how to use Ansible to automate the deployment of an RKE2 Kubernetes cluster with 3 master nodes and 3 worker nodes, followed by installing Helm and Rancher for cluster management. The setup ensures high availability (HA) and is suitable for production environments.</p>
+      <p><strong class="highlight">Key Components:</strong> RKE2 (Kubernetes distribution), Helm (package manager), Rancher (Kubernetes management UI), Ansible (automation).</p>
+    </div>
+
+    <div class="section-card">
+      <h2 class="text-2xl font-semibold mb-4">Prerequisites</h2>
+      <ul class="list-disc list-inside space-y-2">
+        <li><strong>Nodes</strong>: 6 Linux servers (e.g., Ubuntu 22.04 or CentOS Stream 8) with static IPs:
+          <ul class="list-circle list-inside ml-6">
+            <li>Masters: <code>192.168.1.10–12</code> (2 vCPUs, 8GB RAM)</li>
+            <li>Workers: <code>192.168.1.13–15</code> (1 vCPU, 2GB RAM)</li>
+          </ul>
+        </li>
+        <li><strong>Load Balancer</strong>: Layer 4 load balancer (e.g., HAProxy, MetalLB, or AWS ELB) for ports 6443 (Kubernetes API) and 9345 (RKE2 registration).</li>
+        <li><strong>DNS</strong>: A record (e.g., <code>rke2.example.com</code>) pointing to the load balancer.</li>
+        <li><strong>Ansible</strong>: Installed on the control machine (<code>pip install ansible</code>).</li>
+        <li><strong>Tools</strong>: <code>kubectl</code> and <code>helm</code> on the control machine.</li>
+        <li><strong>SSH</strong>: SSH access with root/sudo privileges and key-based authentication.</li>
+      </ul>
+      <details class="mt-4">
+        <summary>Install kubectl and Helm on Control Machine</summary>
+        <div class="code-block mt-2">
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"<br>
+          chmod +x kubectl<br>
+          sudo mv kubectl /usr/local/bin/<br>
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3<br>
+          chmod 700 get_helm.sh<br>
+          ./get_helm.sh
+        </div>
+      </details>
+    </div>
+
+    <div class="section-card">
+      <h2 class="text-2xl font-semibold mb-4">Ansible Inventory</h2>
+      <p class="mb-4">Define your nodes in an Ansible inventory file (<code>inventory.yml</code>) to specify master and worker roles, IPs, and configuration variables.</p>
+      <details>
+        <summary>inventory.yml</summary>
+        <div class="code-block mt-2">
+          all:<br>
+            hosts:<br>
+              master-1:<br>
+                ansible_host: 192.168.1.10<br>
+                ansible_user: ubuntu<br>
+                node_name: master-1<br>
+                role: server<br>
+              master-2:<br>
+                ansible_host: 192.168.1.11<br>
+                ansible_user: ubuntu<br>
+                node_name: master-2<br>
+                role: server<br>
+              master-3:<br>
+                ansible_host: 192.168.1.12<br>
+                ansible_user: ubuntu<br>
+                node_name: master-3<br>
+                role: server<br>
+              worker-1:<br>
+                ansible_host: 192.168.1.13<br>
+                ansible_user: ubuntu<br>
+                node_name: worker-1<br>
+                role: agent<br>
+              worker-2:<br>
+                ansible_host: 192.168.1.14<br>
+                ansible_user: ubuntu<br>
+                node_name: worker-2<br>
+                role: agent<br>
+              worker-3:<br>
+                ansible_host: 192.168.1.15<br>
+                ansible_user: ubuntu<br>
+                node_name: worker-3<br>
+                role: agent<br>
+            vars:<br>
+              ansible_ssh_private_key_file: ~/.ssh/id_rsa<br>
+              rke2_version: v1.24.10+rke2r1<br>
+              primary_master: master-1<br>
+              load_balancer_url: rke2.example.com<br>
+              cluster_token: my-shared-secret<br>
+              cni_plugin: canal
+        </div>
+      </details>
+      <p class="mt-4"><strong class="highlight">Key Variables:</strong></p>
+      <ul class="list-disc list-inside space-y-2">
+        <li><code>rke2_version</code>: Specifies RKE2 version (e.g., v1.24.10+rke2r1).</li>
+        <li><code>primary_master</code>: First master node to bootstrap the cluster.</li>
+        <li><code>load_balancer_url</code>: DNS name for the load balancer.</li>
+        <li><code>cluster_token</code>: Shared secret for node registration.</li>
+        <li><code>cni_plugin</code>: Network plugin (e.g., canal, calico).</li>
+      </ul>
+    </div>
+
+    <div class="section-card">
+      <h2 class="text-2xl font-semibold mb-4">Ansible Playbook</h2>
+      <p class="mb-4">The playbook (<code>deploy_rke2_rancher.yml</code>) automates the installation of RKE2, Helm, and Rancher across all nodes.</p>
+      <details>
+        <summary>deploy_rke2_rancher.yml</summary>
+        <div class="code-block mt-2">
+          ---<br>
+          - name: Deploy RKE2, Helm, and Rancher<br>
+            hosts: all<br>
+            become: true<br>
+            vars:<br>
+              rke2_config_dir: /etc/rancher/rke2<br>
+              rke2_bin_dir: /usr/local/bin<br>
+              helm_version: v3.11.0<br>
+              cert_manager_version: v1.11.0<br>
+              rancher_hostname: rancher.example.com<br>
+              rancher_version: v2.7.1<br>
+            tasks:<br>
+              - name: Update package cache<br>
+                ansible.builtin.apt:<br>
+                  update_cache: yes<br>
+                  cache_valid_time: 3600<br>
+                when: ansible_os_family == "Debian"<br>
+              - name: Install prerequisites<br>
+                ansible.builtin.apt:<br>
+                  name:<br>
+                    - curl<br>
+                    - open-iscsi<br>
+                    - nfs-common<br>
+                  state: present<br>
+                when: ansible_os_family == "Debian"<br>
+              - name: Set hostname<br>
+                ansible.builtin.hostname:<br>
+                  name: "{{ node_name }}"<br>
+                  use: systemd<br>
+              - name: Install RKE2 binaries<br>
+                ansible.builtin.shell:<br>
+                  cmd: curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION={{ rke2_version }} sh -<br>
+                  creates: "{{ rke2_bin_dir }}/rke2"<br>
+                register: rke2_install<br>
+                changed_when: rke2_install.rc == 0<br>
+              - name: Create RKE2 config directory<br>
+                ansible.builtin.file:<br>
+                  path: "{{ rke2_config_dir }}"<br>
+                  state: directory<br>
+                  mode: '0755'<br>
+              - name: Configure primary master node<br>
+                ansible.builtin.copy:<br>
+                  dest: "{{ rke2_config_dir }}/config.yaml"<br>
+                  content: |<br>
+                    node-name: "{{ node_name }}"<br>
+                    token: "{{ cluster_token }}"<br>
+                    cni: "{{ cni_plugin }}"<br>
+                    tls-san:<br>
+                      - "{{ load_balancer_url }}"<br>
+                      - "{{ ansible_ssh_host }}"<br>
+                    node-external-ip: "{{ ansible_ssh_host }}"<br>
+                    node-ip: "{{ ansible_ssh_host }}"<br>
+                when: inventory_hostname == primary_master<br>
+              - name: Configure additional master nodes<br>
+                ansible.builtin.copy:<br>
+                  dest: "{{ rke2_config_dir }}/config.yaml"<br>
+                  content: |<br>
+                    node-name: "{{ node_name }}"<br>
+                    server: "https://{{ hostvars[primary_master].ansible_ssh_host }}:9345"<br>
+                    token: "{{ cluster_token }}"<br>
+                    cni: "{{ cni_plugin }}"<br>
+                    tls-san:<br>
+                      - "{{ load_balancer_url }}"<br>
+                      - "{{ ansible_ssh_host }}"<br>
+                    node-external-ip: "{{ ansible_ssh_host }}"<br>
+                    node-ip: "{{ ansible_ssh_host }}"<br>
+                when: inventory_hostname != primary_master and role == "server"<br>
+              - name: Configure worker nodes<br>
+                ansible.builtin.copy:<br>
+                  dest: "{{ rke2_config_dir }}/config.yaml"<br>
+                  content: |<br>
+                    node-name: "{{ node_name }}"<br>
+                    server: "https://{{ hostvars[primary_master].ansible_ssh_host }}:9345"<br>
+                    token: "{{ cluster_token }}"<br>
+                    node-external-ip: "{{ ansible_ssh_host }}"<br>
+                    node-ip: "{{ ansible_ssh_host }}"<br>
+                when: role == "agent"<br>
+              - name: Start and enable RKE2 server service<br>
+                ansible.builtin.systemd:<br>
+                  name: rke2-server<br>
+                  state: started<br>
+                  enabled: true<br>
+                when: role == "server"<br>
+              - name: Start and enable RKE2 agent service<br>
+                ansible.builtin.systemd:<br>
+                  name: rke2-agent<br>
+                  state: started<br>
+                  enabled: true<br>
+                when: role == "agent"<br>
+              - name: Wait for primary master to be ready<br>
+                ansible.builtin.shell:<br>
+                  cmd: "{{ rke2_bin_dir }}/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml get nodes | grep {{ primary_master }} | grep Ready"<br>
+                  cmd_timeout: 300<br>
+                register: master_ready<br>
+                retries: 30<br>
+                delay: 10<br>
+                until: master_ready.rc == 0<br>
+                when: inventory_hostname == primary_master<br>
+              - name: Copy kubeconfig to control machine<br>
+                ansible.builtin.fetch:<br>
+                  src: /etc/rancher/rke2/rke2.yaml<br>
+                  dest: ~/.kube/config<br>
+                  flat: yes<br>
+                when: inventory_hostname == primary_master<br>
+              - name: Install Helm<br>
+                ansible.builtin.shell:<br>
+                  cmd: |<br>
+                    curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3<br>
+                    chmod 700 get_helm.sh<br>
+                    ./get_helm.sh --version {{ helm_version }}<br>
+                  creates: /usr/local/bin/helm<br>
+                when: inventory_hostname == primary_master<br>
+              - name: Add Helm repositories<br>
+                ansible.builtin.shell:<br>
+                  cmd: |<br>
+                    helm repo add rancher-latest https://releases.rancher.com/server-charts/latest<br>
+                    helm repo add jetstack https://charts.jetstack.io<br>
+                    helm repo update<br>
+                when: inventory_hostname == primary_master<br>
+              - name: Install cert-manager<br>
+                ansible.builtin.shell:<br>
+                  cmd: |<br>
+                    helm install cert-manager jetstack/cert-manager \<br>
+                      --namespace cert-manager \<br>
+                      --create-namespace \<br>
+                      --version {{ cert_manager_version }} \<br>
+                      --set installCRDs=true<br>
+                when: inventory_hostname == primary_master<br>
+              - name: Install Rancher<br>
+                ansible.builtin.shell:<br>
+                  cmd: |<br>
+                    helm install rancher rancher-latest/rancher \<br>
+                      --namespace cattle-system \<br>
+                      --create-namespace \<br>
+                      --set hostname={{ rancher_hostname }} \<br>
+                      --set bootstrapPassword=admin \<br>
+                      --set replicas=3<br>
+                when: inventory_hostname == primary_master<br>
+              - name: Verify Rancher deployment<br>
+                ansible.builtin.shell:<br>
+                  cmd: "{{ rke2_bin_dir }}/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml get pods -n cattle-system | grep rancher | grep Running"<br>
+                  cmd_timeout: 300<br>
+                register: rancher_ready<br>
+                retries: 30<br>
+                delay: 10<br>
+                until: rancher_ready.rc == 0<br>
+                when: inventory_hostname == primary_master
+        </div>
+      </details>
+      <p class="mt-4"><strong class="highlight">Playbook Tasks:</strong></p>
+      <ul class="list-disc list-inside space-y-2">
+        <li>Installs prerequisites (curl, open-iscsi, nfs-common).</li>
+        <li>Sets unique hostnames for nodes.</li>
+        <li>Installs RKE2 binaries and configures nodes (primary master, additional masters, workers).</li>
+        <li>Starts RKE2 services (<code>rke2-server</code> or <code>rke2-agent</code>).</li>
+        <li>Installs Helm and deploys cert-manager and Rancher on the primary master.</li>
+        <li>Verifies cluster and Rancher deployment.</li>
+      </ul>
+    </div>
+
+    <div class="section-card">
+      <h2 class="text-2xl font-semibold mb-4">Running the Playbook</h2>
+      <ol class="list-decimal list-inside space-y-2">
+        <li>Save the inventory as <code>inventory.yml</code> and the playbook as <code>deploy_rke2_rancher.yml</code>.</li>
+        <li>Verify SSH connectivity:
+          <div class="code-block mt-2">
+            ansible all -i inventory.yml -m ping
+          </div>
+        </li>
+        <li>Run the playbook:
+          <div class="code-block mt-2">
+            ansible-playbook -i inventory.yml deploy_rke2_rancher.yml
+          </div>
+        </li>
+      </ol>
+    </div>
+
+    <div class="section-card">
+      <h2 class="text-2xl font-semibold mb-4">Post-Installation Steps</h2>
+      <ol class="list-decimal list-inside space-y-2">
+        <li><strong>Verify Cluster</strong>:
+          <div class="code-block mt-2">
+            kubectl get nodes
+          </div>
+          <p>Expected output:</p>
+          <div class="code-block">
+            NAME       STATUS   ROLES                  AGE   VERSION<br>
+            master-1   Ready    control-plane,etcd     10m   v1.24.10+rke2r1<br>
+            master-2   Ready    control-plane,etcd     10m   v1.24.10+rke2r1<br>
+            master-3   Ready    control-plane,etcd     10m   v1.24.10+rke2r1<br>
+            worker-1   Ready    &lt;none&gt;               10m   v1.24.10+rke2r1<br>
+            worker-2   Ready    &lt;none&gt;               10m   v1.24.10+rke2r1<br>
+            worker-3   Ready    &lt;none&gt;               10m   v1.24.10+rke2r1
+          </div>
+          <div class="code-block mt-2">
+            kubectl get pods -A
+          </div>
+        </li>
+        <li><strong>Access Rancher</strong>:
+          <p>Visit <code>https://rancher.example.com</code>, log in with the bootstrap password (<code>admin</code>), and set a new password.</p>
+        </li>
+        <li><strong>Load Balancer Configuration</strong>:
+          <p>Configure a load balancer for ports 6443 (Kubernetes API), 9345 (RKE2 registration), 80, and 443 (Rancher UI).</p>
+          <details>
+            <summary>Example HAProxy Configuration</summary>
+            <div class="code-block mt-2">
+              frontend rke2-api<br>
+                bind *:6443<br>
+                mode tcp<br>
+                default_backend rke2-api-backend<br>
+              backend rke2-api-backend<br>
+                mode tcp<br>
+                server master-1 192.168.1.10:6443 check<br>
+                server master-2 192.168.1.11:6443 check<br>
+                server master-3 192.168.1.12:6443 check<br>
+              frontend rke2-registration<br>
+                bind *:9345<br>
+                mode tcp<br>
+                default_backend rke2-registration-backend<br>
+              backend rke2-registration-backend<br>
+                mode tcp<br>
+                server master-1 192.168.1.10:9345 check<br>
+                server master-2 192.168.1.11:9345 check<br>
+                server master-3 192.168.1.12:9345 check<br>
+              frontend rancher-http<br>
+                bind *:80<br>
+                mode tcp<br>
+                default_backend rancher-http-backend<br>
+              backend rancher-http-backend<br>
+                mode tcp<br>
+                server master-1 192.168.1.10:80 check<br>
+                server master-2 192.168.1.11:80 check<br>
+                server master-3 192.168.1.12:80 check<br>
+              frontend rancher-https<br>
+                bind *:443<br>
+                mode tcp<br>
+                default_backend rancher-https-backend<br>
+              backend rancher-https-backend<br>
+                mode tcp<br>
+                server master-1 192.168.1.10:443 check<br>
+                server master-2 192.168.1.11:443 check<br>
+                server master-3 192.168.1.12:443 check
+            </div>
+          </details>
+        </li>
+      </ol>
+    </div>
+
+    <div class="section-card">
+      <h2 class="text-2xl font-semibold mb-4">Additional Notes</h2>
+      <ul class="list-disc list-inside space-y-2">
+        <li><strong>Networking</strong>: RKE2 includes an NGINX Ingress controller by default.</li>
+        <li><strong>Security</strong>: Uses hardened images and secure defaults.</li>
+        <li><strong>TLS</strong>: Self-signed certificates via cert-manager; for production, add <code>--set ingress.tls.source=letsEncrypt --set letsEncrypt.email=your-email@example.com</code> to Rancher Helm install.</li>
+        <li><strong>Firewall</strong>: Open ports 6443, 9345, 80, 443, and CNI ports (e.g., 8472/UDP for Canal).</li>
+        <li><strong>Cleanup</strong>: Reset nodes with:
+          <div class="code-block mt-2">
+            /usr/local/bin/rke2-killall.sh<br>
+            /usr/local/bin/rke2-uninstall.sh
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="section-card">
+      <h2 class="text-2xl font-semibold mb-4">References</h2>
+      <ul class="list-disc list-inside space-y-2">
+        <li><a href="https://docs.rke2.io" target="_blank">RKE2 Documentation</a></li>
+        <li><a href="https://ranchermanager.docs.rancher.com" target="_blank">Rancher Installation Guide</a></li>
+        <li><a href="https://www.tech-couch.com" target="_blank">Ansible RKE2 Setup Example</a></li>
+      </ul>
+    </div>
+
+    <footer class="text-center mt-8 text-gray-400">
+      <p>Generated on July 18, 2025, by Grok 3 | <a href="https://x.ai" target="_blank">xAI</a></p>
+    </footer>
+  </div>
+</body>
+</html>
