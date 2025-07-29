@@ -22,6 +22,7 @@ class IUDXDeployer:
         self.config = self._load_config(config_file)
         self.kubectl_cmd = "kubectl"
         self.helm_cmd = "helm"
+        self.ansible_cmd = "ansible-playbook"
         self.monitoring_endpoint = self.config.get("monitoring", {}).get("endpoint", "http://localhost:8080/status")
         self.min_requirements = self.config.get("node_requirements", {
             "cpu_cores": 4,
@@ -81,6 +82,10 @@ class IUDXDeployer:
             if key not in self.config:
                 logger.error("Missing configuration section: %s", key)
                 return False
+        for component in self.config.get("components", []):
+            if component.get("ansible_playbook") and not os.path.exists(component["ansible_playbook"]):
+                logger.error("Ansible playbook not found for component %s: %s", component["name"], component["ansible_playbook"])
+                return False
         logger.info("Configuration validated successfully")
         return True
 
@@ -120,11 +125,35 @@ class IUDXDeployer:
             logger.error("Unexpected error during Rancher deployment: %s", str(e))
             return False
 
+    def run_ansible_playbook(self, component: Dict) -> Tuple[bool, str]:
+        """Run Ansible playbook for a component."""
+        playbook = component.get("ansible_playbook")
+        if not playbook:
+            return True, f"No Ansible playbook defined for {component['name']}"
+        logger.info("Running Ansible playbook for component: %s", component["name"])
+        try:
+            result = subprocess.run([self.ansible_cmd, playbook], capture_output=True, text=True, check=True)
+            logger.info("Ansible playbook for %s completed: %s", component["name"], result.stdout)
+            return True, f"Ansible playbook for {component['name']} succeeded"
+        except subprocess.CalledProcessError as e:
+            logger.error("Ansible playbook for %s failed: %s", component["name"], e.stderr)
+            return False, f"Ansible playbook for {component['name']} failed: {e.stderr}"
+        except Exception as e:
+            logger.error("Unexpected error running Ansible playbook for %s: %s", component["name"], str(e))
+            return False, f"Ansible playbook for {component['name']} failed: {str(e)}"
+
     def deploy_component(self, component: Dict) -> Tuple[bool, str]:
-        """Deploy a single component (e.g., immudb, PostgreSQL, IUDX services)."""
+        """Deploy a single component and run its Ansible playbook."""
         name = component.get("name")
         logger.info("Deploying component: %s", name)
         try:
+            # Run Ansible playbook before Helm deployment if specified
+            if component.get("ansible_pre_deployment", False):
+                success, message = self.run_ansible_playbook(component)
+                if not success:
+                    return False, message
+
+            # Deploy via Helm or kubectl
             if component.get("type") == "helm":
                 helm_cmd = [
                     self.helm_cmd, "install", name,
@@ -138,7 +167,14 @@ class IUDXDeployer:
             elif component.get("type") == "kubectl":
                 subprocess.run([self.kubectl_cmd, "apply", "-f", component.get("manifest")], check=True)
             logger.info("Component %s deployed successfully", name)
-            return True, f"{name} deployed"
+
+            # Run Ansible playbook after Helm deployment if not pre-deployment
+            if not component.get("ansible_pre_deployment", False):
+                success, message = self.run_ansible_playbook(component)
+                if not success:
+                    return False, message
+
+            return True, f"{name} deployed and configured"
         except subprocess.CalledProcessError as e:
             logger.error("Failed to deploy %s: %s", name, e.stderr)
             return False, f"{name} deployment failed: {e.stderr}"
