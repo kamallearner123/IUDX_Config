@@ -1,0 +1,44 @@
+node_requirements:
+  cpu_cores: 4
+  memory_gb: 8
+  disk_gb: 50
+
+rancher:
+  helm_repo: "https://releases.rancher.com/server-charts/stable"
+  chart_name: "rancher"
+  namespace: "cattle-system"
+  hostname: "rancher.local"
+
+components:
+  - name: "immudb"
+    type: "helm"
+    chart: "immudb/immudb"
+    namespace: "iudx"
+    values:
+      replicas: 3
+      storage: "1Gi"
+  - name: "postgresql"
+    type: "helm"
+    chart: "bitnami/postgresql"
+    namespace: "iudx"
+    values:
+      replicas: 3
+      storage: "2Gi"
+      version: "15.1"
+  - name: "iudx-aaa-server"
+    type: "helm"
+    chart: "iudx/aaa-server"
+    namespace: "iudx"
+    values:
+      image: "iudx/aaa-server:latest"
+      port: 8080
+  - name: "iudx-catalogue-server"
+    type: "helm"
+    chart: "iudx/catalogue-server"
+    namespace: "iudx"
+    values:
+      image: "iudx/catalogue-server:latest"
+      port: 8081
+
+monitoring:
+  endpoint: "http://localhost:8080/status"
