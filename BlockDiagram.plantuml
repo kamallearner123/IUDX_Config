@@ -1,0 +1,53 @@
+@startuml
+
+' Define actors
+actor "IUDX Developer\n(via Web UI)" as IUDXDev
+actor "Service Provider User" as SPUser
+actor "User (Customer)" as Customer
+
+' Define system components
+node "Django Backend\n(REST API, DB)" as Backend
+node "Ansible Playbooks\n(.yml Files)" as AnsiblePlaybooks
+node "Ansible Player\n(Executor)" as AnsiblePlayer
+node "Monitoring (ML)\n(Prometheus, ML)" as Monitoring
+node "Rancher\n(Cluster Mgmt)" as Rancher
+node "Security Policies\n(Kubernetes, AWS)" as Security
+node "Dataset Mgmt\n(AWS S3, RDS)" as Dataset
+
+' Composite node for EKS Cluster with IUDX core components
+node "AWS EKS Cluster\n(Core IUDX Solution)" as EKS {
+  component "Data Broker" as Broker
+  component "Catalog Server" as Catalog
+  component "Auth Server" as Auth
+  component "Subscription Manager" as SubMgr
+}
+
+' Relationships: Actors and Flows
+IUDXDev --> Backend : "Configures\n(Services)"
+Backend --> AnsiblePlaybooks
+AnsiblePlayer --> AnsiblePlaybooks : "reads"
+AnsiblePlayer --> EKS : "triggers deployment"
+Backend --> Monitoring
+
+SPUser --> Catalog : "Uploads Datasets"
+SPUser --> Auth : "Configures AAA Server"
+
+Customer --> Catalog : "Accesses Dataset"
+
+' EKS components to Monitoring
+Broker --> Monitoring : "metrics"
+Catalog --> Monitoring : "metrics"
+Auth --> Monitoring : "metrics"
+SubMgr --> Monitoring : "metrics"
+
+EKS --> Rancher
+EKS --> Security
+Monitoring --> Dataset
+
+' Styling
+skinparam monochrome true
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+@enduml
+

@@ -1,0 +1,347 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IUDX Deployment Configuration Service - High Level Design</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .section-header {
+            background-color: #1e40af;
+            color: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .component-card {
+            background-color: #f3f4f6;
+            border-left: 4px solid #3b82f6;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .architecture-diagram {
+            background-color: #e5e7eb;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto p-6 max-w-5xl">
+        <h1 class="text-4xl font-bold text-center text-blue-800 mb-8">IUDX Deployment Configuration Service</h1>
+        <h2 class="text-2xl font-semibold text-center text-gray-700 mb-12">High-Level Design Document</h2>
+
+        <!-- Overview -->
+        <div class="section-header">
+            <h2 class="text-2xl font-semibold">1. Overview</h2>
+        </div>
+        <div class="component-card">
+            <p class="text-gray-700">
+                The IUDX Deployment Configuration Service is a web-based platform designed to streamline the deployment, configuration, monitoring, and management of IUDX components in a Kubernetes environment hosted on AWS. It enables service providers to configure components, manage security policies, monitor deployment statistics, and handle datasets via an intuitive web interface. The system leverages Rancher for Kubernetes management, Ansible for automation, Django for the web application, and machine learning for predictive analytics, ensuring scalability, security, and ease of use.
+            </p>
+        </div>
+
+        <!-- System Requirements -->
+        <div class="section-header">
+            <h2 class="text-2xl font-semibold">2. System Requirements</h2>
+        </div>
+        <div class="component-card">
+            <ul class="list-disc pl-6 text-gray-700">
+                <li><strong>Web Interface</strong>: A Django-based web application for user interaction, configuration, and management.</li>
+                <li><strong>Deployment Automation</strong>: Ansible playbooks integrated with Rancher to deploy and configure Kubernetes resources (e.g., DBs, AAA servers).</li>
+                <li><strong>Monitoring</strong>: Real-time monitoring of Kubernetes cluster metrics (nodes, load, alerts) with ML-based overload prediction.</li>
+                <li><strong>Security Policies</strong>: Configuration of Kubernetes-native security policies and integration with AWS security services.</li>
+                <li><strong>Dataset Management</strong>: Upload, update, and delete datasets stored in a managed database or object storage.</li>
+                <li><strong>Technologies</strong>: Python, Django, Kubernetes, Rancher, Ansible, AWS (EKS, S3, RDS), Machine Learning (e.g., scikit-learn, TensorFlow).</li>
+            </ul>
+        </div>
+
+        <!-- Architecture -->
+        <div class="section-header">
+            <h2 class="text-2xl font-semibold">3. System Architecture</h2>
+        </div>
+        <div class="component-card">
+            <p class="text-gray-700 mb-4">
+                The system is divided into five core components, each addressing specific functionality. The architecture is deployed on AWS EKS, managed by Rancher, with Ansible automating configurations and Django powering the web interface.
+            </p>
+            <div class="architecture-diagram">
+                <h3 class="text-lg font-semibold mb-2">Architecture Diagram</h3>
+                <pre class="text-sm text-gray-600">
++-------------------+       +-------------------+       +-------------------+
+|  Web Interface    |<----->|  Django Backend   |<----->|  AWS EKS Cluster  |
+|  (Django, HTML)   |       |  (REST API, DB)   |       |  (Kubernetes)     |
++-------------------+       +-------------------+       +-------------------+
+                                    |                        |
+                                    v                        v
+                           +-------------------+    +-------------------+
+                           |  Ansible Playbooks |    |  Rancher          |
+                           |  (Deployment)      |    |  (Cluster Mgmt)   |
+                           +-------------------+    +-------------------+
+                                    |                        |
+                                    v                        v
+                           +-------------------+    +-------------------+
+                           |  Monitoring (ML)  |    |  Security Policies|
+                           |  (Prometheus, ML) |    |  (Kubernetes, AWS)|
+                           +-------------------+    +-------------------+
+                                    |
+                                    v
+                           +-------------------+
+                           |  Dataset Mgmt     |
+                           |  (AWS S3, RDS)    |
+                           +-------------------+
+                </pre>
+            </div>
+        </div>
+
+        <!-- Component Details -->
+        <div class="section-header">
+            <h2 class="text-2xl font-semibold">4. Component Details</h2>
+        </div>
+
+        <!-- Component 1: Web Interface -->
+        <div class="component-card">
+            <h3 class="text-xl font-semibold text-blue-600 mb-2">4.1 Web Interface with Customer</h3>
+            <p class="text-gray-700 mb-2">
+                A Django-based web interface allows users to configure IUDX components via forms. Configurations are saved to a PostgreSQL database (via AWS RDS) or exported as YAML files for version control.
+            </p>
+            <ul class="list-disc pl-6 text-gray-700">
+                <li><strong>Frontend</strong>: HTML, Tailwind CSS, JavaScript for dynamic forms.</li>
+                <li><strong>Backend</strong>: Django REST Framework for API endpoints, PostgreSQL for storage.</li>
+                <li><strong>Features</strong>: Form-based input for component selection (e.g., DBs, AAA servers), configuration preview, and export to YAML.</li>
+                <li><strong>Storage</strong>: Configurations stored in AWS RDS; YAML files in AWS S3 for backup and GitOps integration.</li>
+            </ul>
+        </div>
+
+        <!-- Component 2: Deployment Automation -->
+        <div class="component-card">
+            <h3 class="text-xl font-semibold text-blue-600 mb-2">4.2 Deployment Automation</h3>
+            <p class="text-gray-700 mb-2">
+                This component uses Ansible playbooks to deploy and configure IUDX components in an AWS EKS cluster managed by Rancher. It reads configurations from the database or YAML files.
+            </p>
+            <ul class="list-disc pl-6 text-gray-700">
+                <li><strong>Tools</strong>: Ansible for automation, Rancher for Kubernetes cluster management, AWS EKS for hosting.</li>
+                <li><strong>Workflow</strong>: 
+                    <ol class="list-decimal pl-6">
+                        <li>User submits configuration via web interface.</li>
+                        <li>Django backend saves configuration to RDS or generates YAML.</li>
+                        <li>Ansible playbooks (invoked via Django) deploy resources (e.g., PostgreSQL, Keycloak for AAA) using Kubernetes manifests.</li>
+                        <li>Rancher manages cluster scaling and health.</li>
+                    </ol>
+                </li>
+                <li><strong>Security</strong>: Uses Kubernetes Secrets for sensitive data, integrated with AWS Secrets Manager.</li>
+            </ul>
+        </div>
+
+        <!-- Component 3: Monitoring -->
+        <div class="component-card">
+            <h3 class="text-xl font-semibold text-blue-600 mb-2">4.3 Monitoring and Statistics</h3>
+            <p class="text-gray-700 mb-2">
+                A monitoring component provides real-time deployment statistics and predictive analytics for overload detection using machine learning.
+            </p>
+            <ul class="list-disc pl-6 text-gray-700">
+                <li><strong>Tools</strong>: Prometheus for metrics collection, Grafana for visualization, Python (scikit-learn/TensorFlow) for ML-based predictions.</li>
+                <li><strong>Features</strong>:
+                    <ul class="list-disc pl-6">
+                        <li>Real-time metrics: Number of nodes, CPU/memory usage, pod status.</li>
+                        <li>Alerts: Configurable thresholds for resource usage.</li>
+                        <li>ML Model: Predicts potential overload based on historical load patterns.</li>
+                    </ul>
+                </li>
+                <li><strong>Integration</strong>: Prometheus deployed via Rancher, with data fed to a Django API for web display.</li>
+            </ul>
+        </div>
+
+        <!-- Component 4: Security Policies -->
+        <div class="component-card">
+            <h3 class="text-xl font-semibold text-blue-600 mb-2">4.4 Security Policy Configuration</h3>
+            <p class="text-gray-700 mb-2">
+                Users can configure Kubernetes-native security policies and AWS security services via the web interface.
+            </p>
+            <ul class="list-disc pl-6 text-gray-700">
+                <li><strong>Tools</strong>: Kubernetes Network Policies, OPA/Gatekeeper, AWS IAM, AWS WAF.</li>
+                <li><strong>Features</strong>:
+                    <ul class="list-disc pl-6">
+                        <li>Define network policies to restrict pod communication.</li>
+                        <li>Configure role-based access control (RBAC) for cluster resources.</li>
+                        <li>Integrate with AWS IAM for user authentication.</li>
+                        <li>Apply WAF rules for web application protection.</li>
+                    </ul>
+                </li>
+                <li><strong>Workflow</strong>: Policies configured via forms, stored in RDS, and applied via Ansible playbooks.</li>
+            </ul>
+        </div>
+
+        <!-- Component 5: Dataset Management -->
+        <div class="component-card">
+            <h3 class="text-xl font-semibold text-blue-600 mb-2">4.5 Dataset Management</h3>
+            <p class="text-gray-700 mb-2">
+                A component for uploading, updating, and deleting datasets, stored in AWS S3 or RDS.
+            </p>
+            <ul class="list-disc pl-6 text-gray-700">
+                <li><strong>Tools</strong>: AWS S3 for file storage, AWS RDS for metadata, Django for API and UI.</li>
+                <li><strong>Features</strong>:
+                    <ul class="list-disc pl-6">
+                        <li>Upload datasets via web interface (supports CSV, JSON, etc.).</li>
+                        <li>Update or delete datasets with version control.</li>
+                        <li>Metadata management in PostgreSQL for search and retrieval.</li>
+                    </ul>
+                </li>
+                <li><strong>Security</strong>: AWS S3 bucket policies and IAM roles for access control.</li>
+            </ul>
+        </div>
+
+        <!-- Technology Stack -->
+        <div class="section-header">
+            <h2 class="text-2xl font-semibold">5. Technology Stack</h2>
+        </div>
+        <div class="component-card">
+            <table class="w-full text-left text-gray-700">
+                <thead>
+                    <tr class="bg-blue-100">
+                        <th class="p-2">Component</th>
+                        <th class="p-2">Technologies</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="p-2">Web Interface</td>
+                        <td class="p-2">Django, HTML, Tailwind CSS, JavaScript</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2">Deployment</td>
+                        <td class="p-2">Ansible, Rancher, Kubernetes (AWS EKS)</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2">Monitoring</td>
+                        <td class="p-2">Prometheus, Grafana, Python (scikit-learn/TensorFlow)</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2">Security</td>
+                        <td class="p-2">Kubernetes Network Policies, OPA/Gatekeeper, AWS IAM, AWS WAF</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2">Dataset Management</td>
+                        <td class="p-2">AWS S3, AWS RDS, Django</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2">Backend</td>
+                        <td class="p-2">Python, Django REST Framework, PostgreSQL</td>
+                    </tr>
+                    <tr>
+                        <td class="p-2">Infrastructure</td>
+                        <td class="p-2">AWS (EKS, RDS, S3, Secrets Manager), Rancher</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Implementation Considerations -->
+        <div class="section-header">
+            <h2 class="text-2xl font-semibold">6. Implementation Considerations</h2>
+        </div>
+        <div class="component-card">
+            <ul class="list-disc pl-6 text-gray-700">
+                <li><strong>Scalability</strong>: Use AWS EKS auto-scaling and Rancher for cluster management to handle varying loads.</li>
+                <li><strong>Security</strong>: Implement Kubernetes Secrets, AWS Secrets Manager, and OPA/Gatekeeper for policy enforcement. Disable SSL inspection for self-signed certificates.</li>[](https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.3/html/red_hat_ansible_automation_platform_planning_guide/platform-system-requirements)
+                <li><strong>Storage</strong>: Use PersistentVolumeClaims (PVCs) for stateful applications like PostgreSQL, with AWS EBS for persistence.</li>[](https://blog.jetbrains.com/pycharm/2024/03/deploying-django-apps-in-kubernetes/)
+                <li><strong>Monitoring</strong>: Deploy Prometheus and Grafana via Rancher for real-time metrics. Train ML models on historical data for overload prediction.</li>
+                <li><strong>Ansible Integration</strong>: Use Ansible playbooks for declarative configuration, integrated with Django via subprocess calls or Ansible AWX.</li>[](https://www.ansiblepilot.com/articles/install-ansible-awx-operator-for-kubernetes-k8s-and-openshift-ocp-ansible-awx/)
+                <li><strong>GitOps</strong>: Store YAML configurations in a Git repository for version control and CI/CD integration.</li>[](https://octopus.com/devops/kubernetes-deployments/kubernetes-management-tools/)
+            </ul>
+        </div>
+
+        <!-- Deployment Workflow -->
+        <div class="section-header">
+            <h2 class="text-2xl font-semibold">7. Deployment Workflow</h2>
+        </div>
+        <div class="component-card">
+            <ol class="list-decimal pl-6 text-gray-700">
+                <li>User logs into the Django web interface and configures components via forms.</li>
+                <li>Configurations are validated and saved to AWS RDS or exported as YAML to S3.</li>
+                <li>Ansible playbooks are triggered via Django to deploy resources to AWS EKS using Rancher.</li>
+                <li>Prometheus monitors the cluster, feeding data to Grafana and ML models for analytics.</li>
+                <li>Users configure security policies and manage datasets via the web interface, with changes applied via Ansible.</li>
+                <li>Monitoring dashboard displays real-time stats and ML-based overload predictions.</li>
+            </ol>
+        </div>
+
+        <!-- Future Enhancements -->
+        <div class="section-header">
+            <h2 class="text-2xl font-semibold">8. Future Enhancements</h2>
+        </div>
+        <div class="component-card">
+            <ul class="list-disc pl-6 text-gray-700">
+                <li><strong>Multi-Cloud Support</strong>: Extend to GCP and Azure using Kubespray.</li>[](https://computingforgeeks.com/deploy-production-kubernetes-cluster-with-ansible/)
+                <li><strong>Advanced ML</strong>: Enhance overload prediction with real-time learning.</li>
+                <li><strong>GitOps Integration</strong>: Fully automate deployments with ArgoCD.</li>
+                <li><strong>API Access</strong>: Expose REST APIs for programmatic configuration.</li>
+                <li><strong>User Management</strong>: Add role-based access control in the web interface.</li>
+            </ul>
+        </div>
+
+        <!-- References -->
+        <div class="section-header">
+            <h2 class="text-2xl font-semibold">9. References</h2>
+        </div>
+        <div class="component-card">
+            <ul class="list-disc pl-6 text-gray-700">
+                <li>Deploying Django Apps in Kubernetes, The PyCharm Blog</li>[](https://blog.jetbrains.com/pycharm/2024/03/deploying-django-apps-in-kubernetes/)
+                <li>How to Manage Kubernetes with Ansible, Spacelift</li>[](https://spacelift.io/blog/ansible-kubernetes)
+                <li>Kubernetes Setup Using Ansible and Kubespray, ComputingForGeeks</li>[](https://computingforgeeks.com/deploy-production-kubernetes-cluster-with-ansible/)
+                <li>Kubernetes Management Tools, Octopus</li>[](https://octopus.com/devops/kubernetes-deployments/kubernetes-management-tools/)
+                <li>Red Hat Ansible Automation Platform, Red Hat Documentation</li>[](https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.3/html/red_hat_ansible_automation_platform_planning_guide/platform-system-requirements)
+                <li>Install Ansible AWX Operator for Kubernetes, Ansible Pilot</li>[](https://www.ansiblepilot.com/articles/install-ansible-awx-operator-for-kubernetes-k8s-and-openshift-ocp-ansible-awx/)
+            </ul>
+        </div>
+
+        <footer class="text-center text-gray-500 mt-12">
+            <p>Designed for IUDX Deployment Configuration Service | Generated on July 21, 2025</p>
+        </footer>
+    </div>
+</body>
+</html>

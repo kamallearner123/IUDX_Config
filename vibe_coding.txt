@@ -1,0 +1,15 @@
+
+I need to provide service to configure the IUDX deployment with required components depending on service providers requirements.
+Web app should provide facility to set the components and its configurations.
+Components:
+1) Web interface with customer. User should see the form and configure the components.
+It should save all configuration into a DB or Yml file.
+2) A component which takes that configuration and deploys same in kubernetes environment and configure components (like DBs, AAA servers, etc...)
+3) As soon as the deployment is over, another component which gives facility so that user should be able to monitor the deployment stats (like, number of nodes up and running, alerts, load, prediction for overload)
+4) Another component which gives facility to user to configure security policies
+5) Another component which gives facility to upload datasets, delete or update.
+
+Softwares/Tools: Rancher, ansible, Kubernetes, Python, Django, ML, AWS.
+
+
+
